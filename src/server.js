@@ -3,6 +3,8 @@ const cors=require('cors');
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const protect = require("./middleware/authMiddleware");
+const datasetRoutes = require("./routes/datasetRoutes");
+
 
 require("dotenv").config();
 connectDB();
@@ -12,6 +14,7 @@ const app=express();
 app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
+app.use("/api/datasets", datasetRoutes);
 
 
 app.get('/',(req,res)=>{
