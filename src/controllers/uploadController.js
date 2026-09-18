@@ -4,6 +4,13 @@ const { Readable } = require("stream");
 const Dataset = require("../models/Dataset");
 const Review = require("../models/Review");
 
+const {
+  analyzeReviews,
+  generateInsights,
+} = require("../services/geminiService");
+
+const BATCH_SIZE = 30;
+
 const uploadCSV = (req, res) => {
   const rows = [];
 
@@ -57,17 +64,117 @@ const uploadCSV = (req, res) => {
           category: "Uncategorized",
         }));
 
-        await Review.insertMany(reviews);
+        const savedReviews = await Review.insertMany(reviews);
+
+        // Analyze reviews in batches
+        for (let i = 0; i < savedReviews.length; i += BATCH_SIZE) {
+          const batch = savedReviews.slice(i, i + BATCH_SIZE);
+
+          console.log(
+            `Analyzing reviews ${i + 1} to ${i + batch.length}...`
+          );
+
+          const results = await analyzeReviews(batch);
+
+          console.log("AI RESULTS:", results);
+
+          // Update reviews with AI results
+          for (const result of results) {
+            const review = batch[result.reviewIndex - 1];
+
+            if (!review) {
+              throw new Error(
+                `Invalid reviewIndex: ${result.reviewIndex}`
+              );
+            }
+
+            await Review.findByIdAndUpdate(review._id, {
+              sentiment: result.sentiment,
+              category: result.category,
+            });
+          }
+        }
+
+        // Get all analyzed reviews
+        const analyzedReviews = await Review.find({
+          datasetId: dataset._id,
+        });
+
+        // Sentiment counts
+        const sentiment = {
+          positive: 0,
+          negative: 0,
+          neutral: 0,
+        };
+
+        // Category-wise sentiment counts
+        const categoryMap = {};
+
+        analyzedReviews.forEach((review) => {
+          // Sentiment count
+          if (review.sentiment === "Positive") {
+            sentiment.positive++;
+          } else if (review.sentiment === "Negative") {
+            sentiment.negative++;
+          } else if (review.sentiment === "Neutral") {
+            sentiment.neutral++;
+          }
+
+          // Create category
+          if (!categoryMap[review.category]) {
+            categoryMap[review.category] = {
+              name: review.category,
+              positive: 0,
+              negative: 0,
+              neutral: 0,
+            };
+          }
+
+          // Category sentiment count
+          if (review.sentiment === "Positive") {
+            categoryMap[review.category].positive++;
+          } else if (review.sentiment === "Negative") {
+            categoryMap[review.category].negative++;
+          } else if (review.sentiment === "Neutral") {
+            categoryMap[review.category].neutral++;
+          }
+        });
+
+        const categories = Object.values(categoryMap);
+
+        // Generate AI insights
+        console.log("Generating AI insights...");
+
+        const insights = await generateInsights(
+          sentiment,
+          categories
+        );
+
+        console.log("AI INSIGHTS:", insights);
+
+        // Update dataset
+        dataset.sentiment = sentiment;
+        dataset.categories = categories;
+        dataset.insights = insights;
+
+        await dataset.save();
+
+        console.log("Dataset processing completed successfully.");
 
         res.status(201).json({
-          message: "CSV uploaded and saved successfully",
+          message: "CSV uploaded and analyzed successfully",
           datasetId: dataset._id,
           fileName: dataset.fileName,
           totalReviews: dataset.totalReviews,
+          sentiment: dataset.sentiment,
+          categories: dataset.categories,
+          insights: dataset.insights,
         });
       } catch (error) {
+        console.error("Upload/AI error:", error);
+
         res.status(500).json({
-          message: "Failed to save CSV data",
+          message: "Failed to process CSV",
           error: error.message,
         });
       }
