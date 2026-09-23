@@ -8,11 +8,11 @@ const ai = new GoogleGenAI({
 });
 
 const CATEGORIES = [
-  "Transaction Failure",
+  "Transaction",
   "Customer Support",
-  "Login Issues",
+  "Login",
   "App Performance",
-  "Refund Issues",
+  "Refund",
   "Authentication",
   "UI/UX",
   "Account Information",
